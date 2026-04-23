@@ -59,7 +59,7 @@ const VideoPlayerPage = () => {
           className="absolute top-0 left-0 w-full h-full"
           allowFullScreen
           allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+          referrerPolicy="no-referrer"
           data-testid="iframe-player"
         />
       </div>
