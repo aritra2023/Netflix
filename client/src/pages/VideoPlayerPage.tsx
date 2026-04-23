@@ -13,10 +13,13 @@ type Server = {
 };
 
 const SERVERS: Server[] = [
-  { name: 'Server 1 - VidSrc',     build: (tmdb) => `https://vidsrc.to/embed/movie/${tmdb}` },
-  { name: 'Server 2 - VidSrc CC',  build: (tmdb) => `https://vidsrc.cc/v2/embed/movie/${tmdb}` },
-  { name: 'Server 3 - 2Embed',     build: (tmdb) => `https://www.2embed.cc/embed/${tmdb}` },
-  { name: 'Server 4 - MoviesAPI',  build: (tmdb) => `https://moviesapi.club/movie/${tmdb}` },
+  { name: 'Server 1 - VidLink',    build: (tmdb) => `https://vidlink.pro/movie/${tmdb}` },
+  { name: 'Server 2 - VidSrc',     build: (tmdb) => `https://vidsrc.to/embed/movie/${tmdb}` },
+  { name: 'Server 3 - VidBinge',   build: (tmdb) => `https://vidbinge.dev/embed/movie/${tmdb}` },
+  { name: 'Server 4 - Smashy',     build: (tmdb) => `https://player.smashy.stream/movie/${tmdb}` },
+  { name: 'Server 5 - VidSrc CC',  build: (tmdb) => `https://vidsrc.cc/v2/embed/movie/${tmdb}` },
+  { name: 'Server 6 - 2Embed',     build: (tmdb) => `https://www.2embed.cc/embed/${tmdb}` },
+  { name: 'Server 7 - MoviesAPI',  build: (tmdb) => `https://moviesapi.club/movie/${tmdb}` },
 ];
 
 const RACE_TIMEOUT = 8000;
