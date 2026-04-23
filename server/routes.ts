@@ -313,6 +313,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Server health check - verifies which embed servers actually work for a given TMDB id
+  app.get(`${apiPrefix}/check-servers/:tmdbId`, async (req, res) => {
+    const { tmdbId } = req.params;
+    const servers = [
+      { id: 'vidsrc',     name: 'VidSrc',     url: `https://vidsrc.to/embed/movie/${tmdbId}` },
+      { id: 'vidsrccc',   name: 'VidSrc CC',  url: `https://vidsrc.cc/v2/embed/movie/${tmdbId}` },
+      { id: '2embed',     name: '2Embed',     url: `https://www.2embed.cc/embed/${tmdbId}` },
+      { id: 'multi',      name: 'MultiEmbed', url: `https://multiembed.mov/?video_id=${tmdbId}&tmdb=1` },
+      { id: 'embedsu',    name: 'Embed.su',   url: `https://embed.su/embed/movie/${tmdbId}` },
+      { id: 'moviesapi',  name: 'MoviesAPI',  url: `https://moviesapi.club/movie/${tmdbId}` },
+    ];
+
+    const FAIL_KEYWORDS = ['not found', 'video not found', '404', 'no video', 'invalid id', 'unavailable', 'error 404'];
+
+    const checks = await Promise.all(servers.map(async (s) => {
+      const start = Date.now();
+      try {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 6000);
+        const r = await fetch(s.url, {
+          method: 'GET',
+          signal: controller.signal as any,
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html' },
+        });
+        clearTimeout(t);
+        const ms = Date.now() - start;
+        if (!r.ok) return { ...s, ok: false, ms, status: r.status };
+        const text = (await r.text()).toLowerCase();
+        const looksBroken = FAIL_KEYWORDS.some(k => text.includes(k));
+        const tooShort = text.length < 500;
+        const ok = !looksBroken && !tooShort;
+        return { ...s, ok, ms, status: r.status };
+      } catch (e: any) {
+        return { ...s, ok: false, ms: Date.now() - start, status: 0, error: e?.message };
+      }
+    }));
+
+    res.json({ tmdbId, servers: checks });
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

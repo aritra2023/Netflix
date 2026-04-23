@@ -37,61 +37,51 @@ const VideoPlayerPage = () => {
     staleTime: 0,
   });
 
-  // Race all servers on mount / movie change to find the fastest one
+  const [statuses, setStatuses] = useState<('ok' | 'fail' | 'unknown')[]>(() => SERVERS.map(() => 'unknown'));
+
+  // Backend health check: which servers actually return a working page + response time
   useEffect(() => {
     if (!movieId) return;
+    let cancelled = false;
     setRacing(true);
     setActiveIdx(null);
     setPings(SERVERS.map(() => null));
+    setStatuses(SERVERS.map(() => 'unknown'));
 
-    const container = raceContainerRef.current;
-    if (!container) return;
-    container.innerHTML = '';
+    fetch(`/api/check-servers/${movieId}`)
+      .then(r => r.json())
+      .then((data: { servers: { ok: boolean; ms: number }[] }) => {
+        if (cancelled) return;
+        const results = data.servers || [];
+        setPings(results.map(r => r.ms ?? null));
+        setStatuses(results.map(r => (r.ok ? 'ok' : 'fail')));
 
-    let winnerPicked = false;
-    const startedAt = performance.now();
-    const frames: HTMLIFrameElement[] = [];
-    const timers: number[] = [];
+        // Pick the fastest server that is OK
+        const working = results
+          .map((r, i) => ({ i, ms: r.ms, ok: r.ok }))
+          .filter(x => x.ok)
+          .sort((a, b) => a.ms - b.ms);
 
-    SERVERS.forEach((s, idx) => {
-      const f = document.createElement('iframe');
-      f.src = s.build(movieId);
-      f.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;border:0;';
-      f.setAttribute('aria-hidden', 'true');
-      f.onload = () => {
-        const ping = Math.round(performance.now() - startedAt);
-        setPings(prev => {
-          const next = [...prev];
-          if (next[idx] == null) next[idx] = ping;
-          return next;
-        });
-        if (!winnerPicked) {
-          winnerPicked = true;
-          setActiveIdx(idx);
-          setRacing(false);
-          setIframeKey(k => k + 1);
-        }
-      };
-      frames.push(f);
-      container.appendChild(f);
-    });
-
-    // Hard fallback: if nothing fires onload, just pick server 1
-    const fallback = window.setTimeout(() => {
-      if (!winnerPicked) {
-        winnerPicked = true;
+        const winner = working.length > 0 ? working[0].i : 0;
+        setActiveIdx(winner);
+        setRacing(false);
+        setIframeKey(k => k + 1);
+      })
+      .catch(() => {
+        if (cancelled) return;
         setActiveIdx(0);
         setRacing(false);
         setIframeKey(k => k + 1);
-      }
-    }, RACE_TIMEOUT);
-    timers.push(fallback);
+      });
 
-    return () => {
-      timers.forEach(t => clearTimeout(t));
-      frames.forEach(f => { f.onload = null; f.src = 'about:blank'; });
-      if (container) container.innerHTML = '';
-    };
+    // Hard timeout fallback
+    const fallback = window.setTimeout(() => {
+      if (cancelled) return;
+      setActiveIdx(prev => (prev == null ? 0 : prev));
+      setRacing(false);
+    }, RACE_TIMEOUT);
+
+    return () => { cancelled = true; clearTimeout(fallback); };
   }, [movieId]);
 
   const currentSrc = useMemo(
@@ -163,8 +153,16 @@ const VideoPlayerPage = () => {
                   }
                   title={s.name}
                 >
+                  <span
+                    className={
+                      'inline-block w-2 h-2 rounded-full mr-1.5 ' +
+                      (statuses[i] === 'ok' ? 'bg-green-500'
+                        : statuses[i] === 'fail' ? 'bg-red-500'
+                        : 'bg-gray-500 animate-pulse')
+                    }
+                  />
                   Server {i + 1}
-                  {pings[i] != null && (
+                  {pings[i] != null && statuses[i] === 'ok' && (
                     <span className="ml-1 opacity-70">{pings[i]}ms</span>
                   )}
                 </button>
