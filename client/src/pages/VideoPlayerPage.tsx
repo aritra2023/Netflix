@@ -39,8 +39,8 @@ const VideoPlayerPage = () => {
 
   const [statuses, setStatuses] = useState<('ok' | 'fail' | 'unknown')[]>(() => SERVERS.map(() => 'unknown'));
 
-  // Probe each server with a hidden iframe. When all probes settle (or timeout),
-  // auto-pick the highest-priority server that actually responded.
+  // Backend health check: actually fetches each embed URL server-side and reports
+  // status + response time. Returns reliable signal unlike cross-origin iframe probing.
   useEffect(() => {
     if (!movieId) return;
     let cancelled = false;
@@ -49,84 +49,52 @@ const VideoPlayerPage = () => {
     setPings(SERVERS.map(() => null));
     setStatuses(SERVERS.map(() => 'unknown'));
 
-    const container = raceContainerRef.current;
-    if (!container) return;
-    container.innerHTML = '';
+    fetch(`/api/check-servers/${movieId}`)
+      .then(r => r.json())
+      .then((data: { servers: { ok: boolean; ms: number }[] }) => {
+        if (cancelled) return;
+        const results = data.servers || [];
+        const newStatuses: ('ok' | 'fail' | 'unknown')[] = results.map(r => (r.ok ? 'ok' : 'fail'));
+        const newPings: (number | null)[] = results.map(r => (r.ok ? r.ms : null));
+        setStatuses(newStatuses);
+        setPings(newPings);
 
-    const startedAt = performance.now();
-    const settled = new Array<boolean>(SERVERS.length).fill(false);
-    const results = new Array<'ok' | 'fail'>(SERVERS.length).fill('fail');
-    const times = new Array<number | null>(SERVERS.length).fill(null);
-    let firstResponderIdx: number | null = null;
-    let pickTimer: number | null = null;
+        // Auto-pick: highest-priority (lowest index) working server.
+        // Tiebreak by lowest ping among the top 3 working servers.
+        const working = results
+          .map((r, i) => ({ i, ms: r.ms, ok: r.ok }))
+          .filter(x => x.ok);
 
-    const pickWinner = () => {
+        let choice = 0;
+        if (working.length > 0) {
+          // Prefer first working in priority order
+          choice = working[0].i;
+          // But if a higher-priority server is much faster (within first 3),
+          // prefer that one
+          const topThree = working.slice(0, 3).sort((a, b) => a.ms - b.ms);
+          if (topThree.length && topThree[0].ms < working[0].ms * 0.6) {
+            choice = topThree[0].i;
+          }
+        }
+
+        setActiveIdx(choice);
+        setRacing(false);
+        setIframeKey(k => k + 1);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setActiveIdx(0);
+        setRacing(false);
+        setIframeKey(k => k + 1);
+      });
+
+    const fallback = window.setTimeout(() => {
       if (cancelled) return;
-      // Prefer the highest-priority (lowest index) server that responded
-      const winner = results.findIndex(r => r === 'ok');
-      const choice = winner >= 0 ? winner : 0;
-      setStatuses([...results]);
-      setPings([...times]);
-      setActiveIdx(choice);
       setRacing(false);
-      setIframeKey(k => k + 1);
-    };
+      setActiveIdx(prev => (prev == null ? 0 : prev));
+    }, RACE_TIMEOUT + 2000);
 
-    const maybeFinish = () => {
-      if (cancelled) return;
-      // Update UI continuously
-      setStatuses([...results]);
-      setPings([...times]);
-
-      const allDone = settled.every(Boolean);
-      if (allDone) {
-        if (pickTimer) { clearTimeout(pickTimer); pickTimer = null; }
-        pickWinner();
-        return;
-      }
-
-      // As soon as the FIRST server responds, give the higher-priority ones a
-      // short grace window to also respond before we commit.
-      if (firstResponderIdx == null && results.some(r => r === 'ok')) {
-        firstResponderIdx = results.findIndex(r => r === 'ok');
-        pickTimer = window.setTimeout(pickWinner, 1500);
-      }
-    };
-
-    SERVERS.forEach((s, idx) => {
-      const f = document.createElement('iframe');
-      f.src = s.build(movieId);
-      f.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;border:0;';
-      f.setAttribute('aria-hidden', 'true');
-
-      const onceSettle = (ok: boolean) => {
-        if (settled[idx]) return;
-        settled[idx] = true;
-        results[idx] = ok ? 'ok' : 'fail';
-        times[idx] = ok ? Math.round(performance.now() - startedAt) : null;
-        maybeFinish();
-      };
-
-      f.onload = () => onceSettle(true);
-      f.onerror = () => onceSettle(false);
-      // Per-server timeout
-      window.setTimeout(() => onceSettle(false), RACE_TIMEOUT);
-
-      container.appendChild(f);
-    });
-
-    // Hard fallback in case nothing settles
-    const finalFallback = window.setTimeout(() => {
-      if (cancelled) return;
-      pickWinner();
-    }, RACE_TIMEOUT + 500);
-
-    return () => {
-      cancelled = true;
-      if (pickTimer) clearTimeout(pickTimer);
-      clearTimeout(finalFallback);
-      if (container) container.innerHTML = '';
-    };
+    return () => { cancelled = true; clearTimeout(fallback); };
   }, [movieId]);
 
   const currentSrc = useMemo(
