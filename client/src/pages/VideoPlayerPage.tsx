@@ -16,9 +16,7 @@ const SERVERS: Server[] = [
   { name: 'Server 1 - VidSrc',     build: (tmdb) => `https://vidsrc.to/embed/movie/${tmdb}` },
   { name: 'Server 2 - VidSrc CC',  build: (tmdb) => `https://vidsrc.cc/v2/embed/movie/${tmdb}` },
   { name: 'Server 3 - 2Embed',     build: (tmdb) => `https://www.2embed.cc/embed/${tmdb}` },
-  { name: 'Server 4 - MultiEmbed', build: (tmdb) => `https://multiembed.mov/?video_id=${tmdb}&tmdb=1` },
-  { name: 'Server 5 - Embed.su',   build: (tmdb) => `https://embed.su/embed/movie/${tmdb}` },
-  { name: 'Server 6 - MoviesAPI',  build: (tmdb) => `https://moviesapi.club/movie/${tmdb}` },
+  { name: 'Server 4 - MoviesAPI',  build: (tmdb) => `https://moviesapi.club/movie/${tmdb}` },
 ];
 
 const RACE_TIMEOUT = 8000;
@@ -166,16 +164,8 @@ const VideoPlayerPage = () => {
                   }
                   title={s.name}
                 >
-                  <span
-                    className={
-                      'inline-block w-2 h-2 rounded-full mr-1.5 ' +
-                      (statuses[i] === 'ok' ? 'bg-green-500'
-                        : statuses[i] === 'fail' ? 'bg-red-500'
-                        : 'bg-gray-500 animate-pulse')
-                    }
-                  />
                   Server {i + 1}
-                  {pings[i] != null && statuses[i] === 'ok' && (
+                  {pings[i] != null && (
                     <span className="ml-1 opacity-70">{pings[i]}ms</span>
                   )}
                 </button>
