@@ -1,6 +1,6 @@
 import { useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { fetchMovieById } from '@/lib/api';
 import { getPosterUrl } from '@/lib/tmdb';
 import { getYearFromDate, formatRuntime } from '@/lib/utils';
@@ -9,8 +9,7 @@ import Footer from "@/components/Footer";
 
 type Server = {
   name: string;
-  build: (tmdbId: string, imdbId?: string) => string;
-  needsImdb?: boolean;
+  build: (tmdbId: string) => string;
 };
 
 const SERVERS: Server[] = [
@@ -22,10 +21,15 @@ const SERVERS: Server[] = [
   { name: 'Server 6 - MoviesAPI',  build: (tmdb) => `https://moviesapi.club/movie/${tmdb}` },
 ];
 
+const RACE_TIMEOUT = 8000;
+
 const VideoPlayerPage = () => {
   const { movieId } = useParams<{ movieId: string }>();
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
+  const [racing, setRacing] = useState(true);
+  const [pings, setPings] = useState<(number | null)[]>(() => SERVERS.map(() => null));
+  const raceContainerRef = useRef<HTMLDivElement>(null);
 
   const { data: movie, isLoading } = useQuery({
     queryKey: [`/api/movies/${movieId}`],
@@ -33,13 +37,71 @@ const VideoPlayerPage = () => {
     staleTime: 0,
   });
 
+  // Race all servers on mount / movie change to find the fastest one
+  useEffect(() => {
+    if (!movieId) return;
+    setRacing(true);
+    setActiveIdx(null);
+    setPings(SERVERS.map(() => null));
+
+    const container = raceContainerRef.current;
+    if (!container) return;
+    container.innerHTML = '';
+
+    let winnerPicked = false;
+    const startedAt = performance.now();
+    const frames: HTMLIFrameElement[] = [];
+    const timers: number[] = [];
+
+    SERVERS.forEach((s, idx) => {
+      const f = document.createElement('iframe');
+      f.src = s.build(movieId);
+      f.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;border:0;';
+      f.setAttribute('aria-hidden', 'true');
+      f.onload = () => {
+        const ping = Math.round(performance.now() - startedAt);
+        setPings(prev => {
+          const next = [...prev];
+          if (next[idx] == null) next[idx] = ping;
+          return next;
+        });
+        if (!winnerPicked) {
+          winnerPicked = true;
+          setActiveIdx(idx);
+          setRacing(false);
+          setIframeKey(k => k + 1);
+        }
+      };
+      frames.push(f);
+      container.appendChild(f);
+    });
+
+    // Hard fallback: if nothing fires onload, just pick server 1
+    const fallback = window.setTimeout(() => {
+      if (!winnerPicked) {
+        winnerPicked = true;
+        setActiveIdx(0);
+        setRacing(false);
+        setIframeKey(k => k + 1);
+      }
+    }, RACE_TIMEOUT);
+    timers.push(fallback);
+
+    return () => {
+      timers.forEach(t => clearTimeout(t));
+      frames.forEach(f => { f.onload = null; f.src = 'about:blank'; });
+      if (container) container.innerHTML = '';
+    };
+  }, [movieId]);
+
   const currentSrc = useMemo(
-    () => SERVERS[activeIdx].build(movieId || ''),
+    () => (activeIdx != null ? SERVERS[activeIdx].build(movieId || '') : ''),
     [activeIdx, movieId]
   );
 
   const handleSelect = (idx: number) => {
     setActiveIdx(idx);
+    setRacing(false);
     setIframeKey(k => k + 1);
   };
 
@@ -47,6 +109,9 @@ const VideoPlayerPage = () => {
 
   return (
     <div className="min-h-screen bg-black">
+      {/* Hidden race container */}
+      <div ref={raceContainerRef} style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }} aria-hidden />
+
       {/* Top Ad Slot */}
       <div className="w-full h-[90px] bg-netflix-gray flex items-center justify-center">
         <span className="text-gray-400">Advertisement</span>
@@ -54,15 +119,23 @@ const VideoPlayerPage = () => {
 
       {/* Video Player */}
       <div className="relative w-full h-56 md:h-[calc(100vh-340px)] bg-black">
-        <iframe
-          key={iframeKey}
-          src={currentSrc}
-          className="absolute top-0 left-0 w-full h-full"
-          allowFullScreen
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          referrerPolicy="no-referrer"
-          data-testid="iframe-player"
-        />
+        {currentSrc && (
+          <iframe
+            key={iframeKey}
+            src={currentSrc}
+            className="absolute top-0 left-0 w-full h-full"
+            allowFullScreen
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            referrerPolicy="no-referrer"
+            data-testid="iframe-player"
+          />
+        )}
+        {racing && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white gap-3">
+            <div className="w-12 h-12 rounded-full border-4 border-white/15 border-t-[#E50914] animate-spin" />
+            <div className="text-sm opacity-80">Finding fastest server…</div>
+          </div>
+        )}
       </div>
 
       {/* Server Switcher */}
@@ -73,7 +146,7 @@ const VideoPlayerPage = () => {
               <i className="fas fa-server text-[#E50914]"></i>
               <span>Active:</span>
               <strong className="text-white" data-testid="text-active-server">
-                {SERVERS[activeIdx].name}
+                {activeIdx != null ? SERVERS[activeIdx].name : 'Detecting…'}
               </strong>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -88,8 +161,12 @@ const VideoPlayerPage = () => {
                       ? 'bg-[#E50914] text-white border-[#E50914] shadow-[0_4px_14px_rgba(229,9,20,0.35)]'
                       : 'bg-netflix-gray/40 text-gray-200 border-gray-700 hover:border-[#E50914] hover:text-white')
                   }
+                  title={s.name}
                 >
                   Server {i + 1}
+                  {pings[i] != null && (
+                    <span className="ml-1 opacity-70">{pings[i]}ms</span>
+                  )}
                 </button>
               ))}
               <button
@@ -102,7 +179,7 @@ const VideoPlayerPage = () => {
             </div>
           </div>
           <p className="text-[11px] text-gray-500 mt-2">
-            Agar video na chale to dusra server try karein. Sources third-party hain.
+            Fastest server auto-select hota hai. Manually bhi switch kar sakte hain.
           </p>
         </div>
       </div>
