@@ -15,10 +15,11 @@ type Server = {
 
 const SERVERS: Server[] = [
   { name: 'Server 1 - VidSrc',     build: (tmdb) => `https://vidsrc.to/embed/movie/${tmdb}` },
-  { name: 'Server 2 - VidSrc Pro', build: (tmdb) => `https://vidsrc.pro/embed/movie/${tmdb}` },
+  { name: 'Server 2 - VidSrc CC',  build: (tmdb) => `https://vidsrc.cc/v2/embed/movie/${tmdb}` },
   { name: 'Server 3 - 2Embed',     build: (tmdb) => `https://www.2embed.cc/embed/${tmdb}` },
   { name: 'Server 4 - MultiEmbed', build: (tmdb) => `https://multiembed.mov/?video_id=${tmdb}&tmdb=1` },
-  { name: 'Server 5 - AutoEmbed',  build: (tmdb) => `https://autoembed.cc/embed/player.php?id=${tmdb}` },
+  { name: 'Server 5 - Embed.su',   build: (tmdb) => `https://embed.su/embed/movie/${tmdb}` },
+  { name: 'Server 6 - MoviesAPI',  build: (tmdb) => `https://moviesapi.club/movie/${tmdb}` },
 ];
 
 const VideoPlayerPage = () => {
