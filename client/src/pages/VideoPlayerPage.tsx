@@ -1,19 +1,48 @@
 import { useParams } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
 import { fetchMovieById } from '@/lib/api';
-import { getBackdropUrl, getPosterUrl } from '@/lib/tmdb';
+import { getPosterUrl } from '@/lib/tmdb';
 import { getYearFromDate, formatRuntime } from '@/lib/utils';
 import MovieCardSkeleton from '@/components/MovieCardSkeleton';
 import Footer from "@/components/Footer";
 
+type Server = {
+  name: string;
+  build: (tmdbId: string, imdbId?: string) => string;
+  needsImdb?: boolean;
+};
+
+const SERVERS: Server[] = [
+  { name: 'Server 1 - VidSrc',     build: (tmdb) => `https://vidsrc.to/embed/movie/${tmdb}` },
+  { name: 'Server 2 - VidSrc Pro', build: (tmdb) => `https://vidsrc.pro/embed/movie/${tmdb}` },
+  { name: 'Server 3 - 2Embed',     build: (tmdb) => `https://www.2embed.cc/embed/${tmdb}` },
+  { name: 'Server 4 - MultiEmbed', build: (tmdb) => `https://multiembed.mov/?video_id=${tmdb}&tmdb=1` },
+  { name: 'Server 5 - AutoEmbed',  build: (tmdb) => `https://autoembed.cc/embed/player.php?id=${tmdb}` },
+];
+
 const VideoPlayerPage = () => {
   const { movieId } = useParams<{ movieId: string }>();
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [iframeKey, setIframeKey] = useState(0);
 
   const { data: movie, isLoading } = useQuery({
     queryKey: [`/api/movies/${movieId}`],
     queryFn: () => fetchMovieById(movieId),
-    staleTime: 0, // Disable caching
+    staleTime: 0,
   });
+
+  const currentSrc = useMemo(
+    () => SERVERS[activeIdx].build(movieId || ''),
+    [activeIdx, movieId]
+  );
+
+  const handleSelect = (idx: number) => {
+    setActiveIdx(idx);
+    setIframeKey(k => k + 1);
+  };
+
+  const handleRetry = () => setIframeKey(k => k + 1);
 
   return (
     <div className="min-h-screen bg-black">
@@ -23,15 +52,58 @@ const VideoPlayerPage = () => {
       </div>
 
       {/* Video Player */}
-      <div className="relative w-full h-56 md:h-[calc(100vh-270px)]">
+      <div className="relative w-full h-56 md:h-[calc(100vh-340px)] bg-black">
         <iframe
-          src={`https://vidsrc.to/embed/movie/${movieId}`}
+          key={iframeKey}
+          src={currentSrc}
           className="absolute top-0 left-0 w-full h-full"
           allowFullScreen
-          allow="autoplay; fullscreen"
-          allow="autoplay; fullscreen"
-          onError={() => window.open(`https://vidsrc.to/embed/movie/${movieId}`, '_blank')}
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+          data-testid="iframe-player"
         />
+      </div>
+
+      {/* Server Switcher */}
+      <div className="bg-netflix-black/95 border-t border-gray-800 px-4 py-3">
+        <div className="container mx-auto">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-gray-300">
+              <i className="fas fa-server text-[#E50914]"></i>
+              <span>Active:</span>
+              <strong className="text-white" data-testid="text-active-server">
+                {SERVERS[activeIdx].name}
+              </strong>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {SERVERS.map((s, i) => (
+                <button
+                  key={s.name}
+                  onClick={() => handleSelect(i)}
+                  data-testid={`button-server-${i + 1}`}
+                  className={
+                    'px-3 py-1.5 rounded-full text-xs font-semibold transition border ' +
+                    (i === activeIdx
+                      ? 'bg-[#E50914] text-white border-[#E50914] shadow-[0_4px_14px_rgba(229,9,20,0.35)]'
+                      : 'bg-netflix-gray/40 text-gray-200 border-gray-700 hover:border-[#E50914] hover:text-white')
+                  }
+                >
+                  Server {i + 1}
+                </button>
+              ))}
+              <button
+                onClick={handleRetry}
+                data-testid="button-retry"
+                className="px-3 py-1.5 rounded-full text-xs font-semibold bg-netflix-gray/40 text-gray-200 border border-gray-700 hover:border-white hover:text-white transition"
+              >
+                <i className="fas fa-rotate-right mr-1"></i> Retry
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-500 mt-2">
+            Agar video na chale to dusra server try karein. Sources third-party hain.
+          </p>
+        </div>
       </div>
 
       {/* Bottom Ad Slot */}
@@ -44,7 +116,7 @@ const VideoPlayerPage = () => {
         <div className="bg-netflix-black/90 p-4 border-t border-gray-800">
           <div className="container mx-auto">
             <div className="flex-1">
-              <h1 className="text-3xl font-bold text-white mb-3">{movie.title}</h1>
+              <h1 className="text-3xl font-bold text-white mb-3" data-testid="text-movie-title">{movie.title}</h1>
               <div className="flex items-center gap-3 text-sm text-gray-400 mb-4">
                 <span>{getYearFromDate(movie.release_date)}</span>
                 {movie.runtime && (
@@ -86,10 +158,10 @@ const VideoPlayerPage = () => {
                   </div>
                 ) : movie?.similar?.results?.length > 0 || movie?.recommendations?.results?.length > 0 ? (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {(movie?.similar?.results?.length > 0 ? movie.similar.results : movie.recommendations.results).slice(0, 12).map((similarMovie) => (
-                      <a 
+                    {(movie?.similar?.results?.length > 0 ? movie.similar.results : movie.recommendations.results).slice(0, 12).map((similarMovie: any) => (
+                      <a
                         href={`/watch/${similarMovie.id}`}
-                        key={similarMovie.id} 
+                        key={similarMovie.id}
                         className="bg-netflix-gray/20 rounded-lg overflow-hidden group relative block"
                       >
                         <div className="relative aspect-[2/3]">
